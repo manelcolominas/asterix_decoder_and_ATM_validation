@@ -59,10 +59,7 @@ def decode_asterix_message(data: bytes) -> AsterixMessage:
     category_value = data[0]
     length = int.from_bytes(data[1:3], "big")
 
-    try:
-        category = CategoryMessage(category_value)
-    except ValueError as exc:
-        raise ValueError(f"Unsupported ASTERIX category: {category_value}") from exc
+    category = CategoryMessage(category_value)
 
     payload = data[3:]
     records = decode_records_message(category, payload)
@@ -159,13 +156,15 @@ def read_data_item_bytes(data: bytes, pos: int, item_type: DataItemType) -> byte
     # For now, use the spec lengths for the common items.
     lengths = {
         DataItemType.I021_010: 2,
-        DataItemType.I021_040: 1,   # + possible extensions, handle separately if needed
-        DataItemType.I021_070: 2,
-        DataItemType.I021_073: 3,
+        DataItemType.I021_040: 1, # 1 or more,
+        DataItemType.I021_131: 8,
         DataItemType.I021_080: 3,
-        DataItemType.I048_010: 2,
-        DataItemType.I048_030: 1,
-        DataItemType.I048_042: 1,
+        DataItemType.I021_073: 3,
+        DataItemType.I021_070: 2,
+        DataItemType.I021_145: 2,
+        DataItemType.I021_170: 6,
+        DataItemType.I021_REF: 1, # 1 or more
+
     }
 
     length = lengths.get(item_type, 1)
