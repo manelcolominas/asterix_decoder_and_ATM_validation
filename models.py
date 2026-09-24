@@ -21,13 +21,13 @@ class DataRecord:
 
 
 class DataItem:
-    def __init__(self,item_type: DataItemType,content: Any):
+    def __init__(self,item_type: DataItemType, content: Any):
         self.item_type = item_type
         self.content = content
 
 
 class DataField:
-    def __init__(self,item: DataItem,field_type: DataFieldType):
+    def __init__(self,item: DataItem, field_type: DataFieldType):
         self.item = item
         self.field_type = field_type
 
