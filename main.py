@@ -3,6 +3,33 @@ from bitstring import Bits
 
 from models import AsterixMessage, CategoryMessage, DataRecord, DataField, DataItem, DataItemType, DataFieldType
 
+
+FIXED_LENGTHS = {
+    DataItemType.I021_010: 2,
+    DataItemType.I021_131: 8,
+    DataItemType.I021_080: 3,
+    DataItemType.I021_073: 3,
+    DataItemType.I021_070: 2,
+    DataItemType.I021_145: 2,
+    DataItemType.I021_170: 6,
+
+    DataItemType.I048_010: 2,
+    DataItemType.I048_140: 3,
+    DataItemType.I048_040: 4,
+    DataItemType.I048_070: 2,
+    DataItemType.I048_090: 2,
+    DataItemType.I048_220: 3,
+    DataItemType.I048_240: 6,
+    DataItemType.I048_161: 2,
+    DataItemType.I048_200: 4,
+    DataItemType.I048_230: 2,
+}
+
+EXTENDED_ITEMS = {DataItemType.I021_040, DataItemType.I048_020, DataItemType.I048_170}
+REPETITIVE_ITEMS = {DataItemType.I048_250: 8}  # item_type -> subfield size in bytes
+COMPOUND_ITEMS = {DataItemType.I048_130, DataItemType.I021_REF}
+
+
 def run_app():
     binary_file_path = Path(
         r"C:\Users\manel\Documents\Educació\Universitat\6è any\1r Quadrimestre"
@@ -73,27 +100,29 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
 
     while pos < len(data):
         # read the FSPEC bytes
-        fspec_bytes = []
+        fspec_vector = []
+        
         while True:
             if pos >= len(data):
                 raise ValueError("Unexpected end of data while reading FSPEC")
-
-            b = data[pos]
-            fspec_bytes.append(b)
+        
+            byte = data[pos]
             pos += 1
-
-            # FX bit is the LSB; if 0 => end of FSPEC
-            if (b & 0x01) == 0:
+        
+            # Store F1..F7, from most significant to least significant bit.
+            for bit in range(7, 0, -1):
+                fspec_vector.append(1 if byte & (1 << bit) else 0)
+        
+            # FX is only used to detect another FSPEC octet.
+            if (byte & 0x01) == 0:
                 break
 
         # collect active FRNs from the FSPEC
-        active_frns: list[int] = []
-        for octet_index, fspec_byte in enumerate(fspec_bytes):
-            # bits 7..1 are F1..F7 in that octet, bit 0 is FX
-            for bit in range(7, 0, -1):
-                if fspec_byte & (1 << bit):
-                    frn = octet_index * 7 + (8 - bit)
-                    active_frns.append(frn)
+        active_frns = [
+            index + 1
+            for index, is_present in enumerate(fspec_vector)
+            if is_present
+        ]
 
         fields: list[DataField] = []
 
@@ -107,7 +136,7 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
             fields.append(DataField(item=item, field_type=DataFieldType.FIXED))
             pos += len(raw_value)
 
-        records.append(DataRecord(fspec=fspec_bytes, fields=fields))
+        records.append(DataRecord(fspec=fspec_vector, fields=fields))
 
     return records
 
@@ -131,21 +160,19 @@ def map_frn_to_item_type(category: CategoryMessage, frn: int):
     if category == CategoryMessage.CAT048:
         mapping = {
             1: DataItemType.I048_010,
-            2: DataItemType.I048_030,
-            3: DataItemType.I048_042,
-            4: DataItemType.I048_060,
-            5: DataItemType.I048_065,
-            6: DataItemType.I048_080,
-            7: DataItemType.I048_100,
-            8: DataItemType.I048_110,
-            9: DataItemType.I048_161,
-            10: DataItemType.I048_170,
-            11: DataItemType.I048_200,
-            12: DataItemType.I048_210,
-            13: DataItemType.I048_220,
+            2: DataItemType.I048_140,
+            3: DataItemType.I048_020,
+            4: DataItemType.I048_040,
+            5: DataItemType.I048_070,
+            6: DataItemType.I048_090,
+            7: DataItemType.I048_130,
+            8: DataItemType.I048_220,
+            9: DataItemType.I048_240,
+            10: DataItemType.I048_250,
+            11: DataItemType.I048_161,
+            12: DataItemType.I048_200,
+            13: DataItemType.I048_170,
             14: DataItemType.I048_230,
-            15: DataItemType.I048_240,
-            16: DataItemType.I048_260,
         }
         return mapping.get(frn)
 
@@ -153,23 +180,27 @@ def map_frn_to_item_type(category: CategoryMessage, frn: int):
 
 
 def read_data_item_bytes(data: bytes, pos: int, item_type: DataItemType) -> bytes:
-    # For now, use the spec lengths for the common items.
-    lengths = {
-        DataItemType.I021_010: 2,
-        DataItemType.I021_040: 1, # 1 or more,
-        DataItemType.I021_131: 8,
-        DataItemType.I021_080: 3,
-        DataItemType.I021_073: 3,
-        DataItemType.I021_070: 2,
-        DataItemType.I021_145: 2,
-        DataItemType.I021_170: 6,
-        DataItemType.I021_REF: 1, # 1 or more
+    if item_type in FIXED_LENGTHS:
+        length = FIXED_LENGTHS[item_type]
+    elif item_type in EXTENDED_ITEMS:
+        if pos >= len(data):
+            raise ValueError(f"Missing length indicator for {item_type}")
+        length = 1 + data[pos]
+    elif item_type in REPETITIVE_ITEMS:
+        if pos >= len(data):
+            raise ValueError(f"Missing repetition count for {item_type}")
+        repeat_count = data[pos]
+        subfield_size = REPETITIVE_ITEMS[item_type]
+        length = 1 + repeat_count * subfield_size
+    elif item_type in COMPOUND_ITEMS:
+        if pos >= len(data):
+            raise ValueError(f"Missing compound length for {item_type}")
+        length = 1 + data[pos]
+    else:
+        length = 1
 
-    }
-
-    length = lengths.get(item_type, 1)
-    if pos + length > len(data):
-        raise ValueError(f"Not enough bytes to read {item_type}")
+    # if pos + length > len(data):
+    #     raise ValueError(f"Not enough bytes to read {item_type}")
 
     return data[pos:pos + length]
 
