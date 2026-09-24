@@ -1,11 +1,35 @@
-from dataclasses import field
 from enum import Enum, IntEnum
 from typing import Any
+
+
+class AsterixMessage:
+    def __init__(self,category: CategoryMessage,length: int,records: list[DataRecord]):
+        self.category = category
+        self.length = length
+        self.records = records
 
 
 class CategoryMessage(IntEnum):
     CAT021 = 21
     CAT048 = 48
+
+
+class DataRecord:
+    def __init__(self,fspec: list[int],fields: list[DataField]):
+        self.fspec = fspec
+        self.fields = fields
+
+
+class DataItem:
+    def __init__(self,item_type: DataItemType,content: Any):
+        self.item_type = item_type
+        self.content = content
+
+
+class DataField:
+    def __init__(self,item: DataItem,field_type: DataFieldType):
+        self.item = item
+        self.field_type = field_type
 
 
 class DataFieldType(Enum):
@@ -42,23 +66,3 @@ class DataItemType(str, Enum):
     I048_230 = "I048/230"
     I048_240 = "I048/240"
     I048_260 = "I048/260"
-
-
-class DataItem:
-    item_type: DataItemType
-    content: Any
-
-class DataField:
-    item: DataItem
-    field_type: DataFieldType
-
-
-class DataRecord:
-    fspec: list[int]
-    fields: list[DataField]
-
-
-class AsterixMessage:
-    category: Category
-    length: int
-    records: list[DataRecord]

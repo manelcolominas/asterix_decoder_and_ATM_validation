@@ -304,14 +304,14 @@ OCTET 1                                    OCTET 2
 
 ```
 OCTET 1 (b48..b41)   OCTET 2 (b40..b33)   OCTET 3 (b32..b25)
-┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
-│ Char 1  │ Char 2..│ │..2 │ Char 3     │ │  Char 4  │ Char 5.│
-└──────────────────┘ └──────────────────┘ └──────────────────┘
+┌───────────────────┐ ┌──────────────────┐ ┌───────────────────┐
+│ Char 1  │ Char 2..│ │ ..2 │   Char 3   │ │  Char 4  │ Char 5.│
+└───────────────────┘ └──────────────────┘ └───────────────────┘
 
 OCTET 4 (b24..b17)   OCTET 5 (b16..b9)    OCTET 6 (b8..b1)
-┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
-│..5 │ Char 6      │ │ Char 7  │ Char 8..│ │..8              │
-└──────────────────┘ └──────────────────┘ └──────────────────┘
+┌──────────────────┐ ┌───────────────────┐ ┌──────────────────┐
+│..5 │ Char 6      │ │ Char 7  │ Char 8..│ │..8               │
+└──────────────────┘ └───────────────────┘ └──────────────────┘
 ```
 
 > Nota: com que 8 caràcters × 6 bits = 48 bits, els límits de caràcter (6 bits) no coincideixen amb els límits d'octet (8 bits); alguns caràcters queden partits entre dos octets consecutius (p. ex. Character 2 entre octet 1 i 2, Character 5 entre octet 3 i 4, Character 8 entre octet 5 i 6). La taula de bits següent és la referència exacta.
