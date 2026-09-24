@@ -1,0 +1,1 @@
+funcions per a llegir cada data item
