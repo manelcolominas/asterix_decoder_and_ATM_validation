@@ -65,12 +65,12 @@ def decode_asterix_message(data: bytes) -> AsterixMessage:
         raise ValueError(f"Unsupported ASTERIX category: {category_value}") from exc
 
     payload = data[3:]
-    records = decode_records_message(payload, category)
+    records = decode_records_message(category, payload)
 
     return AsterixMessage(category=category, length=length, records=records)
 
 
-def decode_records_message(data: bytes, category: CategoryMessage) -> list[DataRecord]:
+def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataRecord]:
     records: list[DataRecord] = []
     pos = 0
 
@@ -124,6 +124,10 @@ def map_frn_to_item_type(category: CategoryMessage, frn: int):
             3: DataItemType.I021_070,
             4: DataItemType.I021_073,
             5: DataItemType.I021_080,
+            6: DataItemType.I021_131,
+            7: DataItemType.I021_145,
+            8: DataItemType.I021_170,
+            9: DataItemType.I021_REF,
         }
         return mapping.get(frn)
 
@@ -132,6 +136,19 @@ def map_frn_to_item_type(category: CategoryMessage, frn: int):
             1: DataItemType.I048_010,
             2: DataItemType.I048_030,
             3: DataItemType.I048_042,
+            4: DataItemType.I048_060,
+            5: DataItemType.I048_065,
+            6: DataItemType.I048_080,
+            7: DataItemType.I048_100,
+            8: DataItemType.I048_110,
+            9: DataItemType.I048_161,
+            10: DataItemType.I048_170,
+            11: DataItemType.I048_200,
+            12: DataItemType.I048_210,
+            13: DataItemType.I048_220,
+            14: DataItemType.I048_230,
+            15: DataItemType.I048_240,
+            16: DataItemType.I048_260,
         }
         return mapping.get(frn)
 
