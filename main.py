@@ -99,12 +99,12 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
             if bit == 0:
                 continue
             item_type = map_frn_to_item_type(category, frn)
-            print(item_type)
             item, offset = decode_data_item(category,item_type, data, offset)
             if item is None:
                 continue
             field = DataField(item=item,field_type=get_field_type(item_type))
             fields.append(field)
+            print(item_type)
             field_type = get_field_type(item_type)
             field = DataField(item=item, field_type=field_type)
             fields.append(field)
