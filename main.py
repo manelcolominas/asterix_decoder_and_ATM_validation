@@ -34,11 +34,9 @@ INTERESTING_DATA_ITEMS = {
 
 
 def run_app():
-    binary_file_path = Path(
-        r"C:\Users\manel\Documents\Educació\Universitat\6è any\1r Quadrimestre"
-        r"\Projectes per a la Gestió del Trànsit Aeri\Projectes\Projecte 2 i 3"
-        r"\asterix_radar.ast"
-    )
+    binary_file_path = Path( r"inputs\asterix_radar.ast")
+    # binary_file_path = Path( r"inputs\asterix_adsb.ast")
+    # binary_file_path = Path( r"inputs\asterix_combinado.ast")
 
     run_pipeline(binary_file_path)
 
