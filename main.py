@@ -103,10 +103,10 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
             item_type = map_frn_to_item_type(category, frn)
             print(item_type)
             item, offset = decode_data_item(category,item_type, data, offset)
+            if item is None:
+                continue
             field = DataField(item=item,field_type=get_field_type(item_type))
-            
-            if item_type in INTERESTING_DATA_ITEMS:
-                fields.append(field)
+            fields.append(field)
             field_type = get_field_type(item_type)
             field = DataField(item=item, field_type=field_type)
             fields.append(field)
@@ -140,7 +140,7 @@ def get_field_type(item_type: DataItemType) -> DataFieldType:
     return ITEM_SPECS[item_type].field_type
 
 
-def decode_data_item(category: CategoryMessage, item_type: DataItemType, data: bytes, offset: int) -> tuple[DataItem, int]:
+def decode_data_item(category: CategoryMessage, item_type: DataItemType, data: bytes, offset: int) -> tuple[DataItem | None, int]:
     field_type = get_field_type(item_type)
 
     if field_type == DataFieldType.FIXED:
@@ -156,6 +156,9 @@ def decode_data_item(category: CategoryMessage, item_type: DataItemType, data: b
     else:
         raise ValueError(f"No decode rule defined for {item_type}")
 
+    if item_type not in INTERESTING_DATA_ITEMS:
+        return None, new_offset
+
     if category == CategoryMessage.CAT021:
         subfield = decode_data_item_cat021(item_type, raw_content)
     elif category == CategoryMessage.CAT048:
@@ -163,7 +166,7 @@ def decode_data_item(category: CategoryMessage, item_type: DataItemType, data: b
     else:
         raise ValueError(f"Unsupported category: {category}")
 
-    return DataItem(item_type=item_type,content=subfield), new_offset
+    return DataItem(item_type=item_type, content=subfield), new_offset
 
 
 def decode_fixed_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:

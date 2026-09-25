@@ -87,6 +87,7 @@ class DataItemType(str, Enum):
     I021_260 = "I021/260"
     I021_400 = "I021/400"
     I021_295 = "I021/295"
+    I021_SPF = "I021/SPF"
 
 
     # CAT048 DataItem's
