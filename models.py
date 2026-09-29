@@ -37,7 +37,7 @@ class DataFieldType(Enum):
     EXTENDED = "extended"
     REPETITIVE = "repetitive"
     COMPOUND = "compound"
-    LENGTH_INDICATED= "length_indicated"
+    #LENGTH_INDICATED= "length_indicated"
 
 
 class DataItemType(str, Enum):
@@ -123,10 +123,12 @@ class DataItemType(str, Enum):
     SP_DATA_ITEM = "SP_DATA_ITEM"
     RE_DATA_ITEM = "RE_DATA_ITEM"
 
+
 class DataItemSubfield:
     def __init__(self, pos: int, content: list[Any]):
         self.pos = pos
         self.content = content
+
 
 class DataItemTypeSpec:
     def __init__(self, field_type: DataFieldType, length: int | None = None, repetition_size: int | None = None, subfield_lengths: tuple[int, ...] = ()):
@@ -180,7 +182,7 @@ ITEM_SPECS = {
 
     DataItemType.I021_146: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I021_148: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
-    DataItemType.I021_110: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    DataItemType.I021_110: DataItemTypeSpec(field_type=DataFieldType.COMPOUND),
     DataItemType.I021_016: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
 
     DataItemType.I021_008: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
@@ -200,9 +202,8 @@ ITEM_SPECS = {
     DataItemType.I048_040: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=4),
     DataItemType.I048_070: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I048_090: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
-    DataItemType.I048_130: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 
-    # DataItemType.I048_130: DataItemTypeSpec(field_type=DataFieldType.COMPOUND,subfield_lengths=(1, 1, 1, 1, 1, 1, 1)),
+    DataItemType.I048_130: DataItemTypeSpec(field_type=DataFieldType.COMPOUND,subfield_lengths=(1, 1, 1, 1, 1, 1, 1)),
     DataItemType.I048_220: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=3),
     DataItemType.I048_240: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=6),
     DataItemType.I048_250: DataItemTypeSpec(field_type=DataFieldType.REPETITIVE,repetition_size=8),
@@ -229,8 +230,8 @@ ITEM_SPECS = {
     DataItemType.I048_065: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
     DataItemType.I048_060: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
 
-    DataItemType.SP_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
-    DataItemType.RE_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
+    DataItemType.SP_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    DataItemType.RE_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
 }
 
 FRN_MAPS = {

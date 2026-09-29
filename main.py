@@ -34,9 +34,9 @@ INTERESTING_DATA_ITEMS = {
 
 
 def run_app():
-    binary_file_path = Path( r"inputs\asterix_radar.ast")
-    # binary_file_path = Path( r"inputs\asterix_adsb.ast")
-    # binary_file_path = Path( r"inputs\asterix_combinado.ast")
+    # binary_file_path = Path( r"inputs\asterix_radar.ast") # cat048
+    binary_file_path = Path( r"inputs\asterix_adsb.ast") # cat021
+    # binary_file_path = Path( r"inputs\asterix_combinado.ast") # cat048 + cat021
 
     run_pipeline(binary_file_path)
 
@@ -130,7 +130,7 @@ def parse_fspec(data: bytes, offset: int) -> tuple[list[int], int]:
     return fspec, offset
 
 
-def map_frn_to_item_type(category: CategoryMessage,frn: int) -> DataItemType | None:
+def map_frn_to_item_type(category: CategoryMessage,frn: int) -> DataItemType:
     return FRN_MAPS.get(category, {}).get(frn)
 
 
@@ -149,8 +149,8 @@ def decode_data_item(category: CategoryMessage, item_type: DataItemType, data: b
         raw_content, new_offset = decode_repetitive_item(item_type, data, offset)
     elif field_type == DataFieldType.COMPOUND:
         raw_content, new_offset = decode_compound_item(item_type, data, offset)
-    elif field_type == DataFieldType.LENGTH_INDICATED:
-        raw_content, new_offset = decode_length_indicated_item(item_type, data, offset)
+    # elif field_type == DataFieldType.LENGTH_INDICATED:
+    #    raw_content, new_offset = decode_length_indicated_item(item_type, data, offset)
     else:
         raise ValueError(f"No decode rule defined for {item_type}")
 
@@ -164,66 +164,75 @@ def decode_data_item(category: CategoryMessage, item_type: DataItemType, data: b
     else:
         raise ValueError(f"Unsupported category: {category}")
 
-    return DataItem(item_type=item_type, content=subfield), new_offset
+    return DataItem(item_type=item_type, content=[subfield]), new_offset
 
 
 def decode_fixed_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
     length = ITEM_SPECS[item_type].length
     content = data[offset:offset + length]
-    return content, offset + length
+    return bytes(content), offset + length
 
 
-def decode_extended_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[DataItem, int]:
+def decode_extended_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
     content = bytearray()
-    while True:
+
+    while offset < len(data):
         octet = data[offset]
         content.append(octet)
         offset += 1
-        if octet & 1 == 0:  # FX = 0 -> fi de les extensions
-            break
-    data_item = DataItem(item_type=item_type, content=bytes(content))
-    return data_item, offset
+
+        if (octet & 0x01) == 0:
+            return bytes(content), offset
+
+    raise ValueError(f"Truncated extended data item: {item_type}")
 
 
-def decode_repetitive_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[DataItem, int]:
+def decode_repetitive_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
+    start_offset = offset
     rep_count = data[offset]
     offset += 1
     subfield_size = ITEM_SPECS[item_type].repetition_size
-    total_length = rep_count * subfield_size
-    content = data[offset:offset + total_length]
-    data_item = DataItem(item_type=item_type, content=content)
-    return data_item, offset + total_length
+    if subfield_size is None:
+        raise ValueError(f"No repetition size defined for {item_type}")
+
+    end_offset = offset + rep_count * subfield_size
+    return data[start_offset:end_offset], end_offset
 
 
-def decode_compound_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[DataItem, int]:
+def decode_compound_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
     start_offset = offset
-    presence_bits, offset = parse_fspec(data, offset)
+    presence_bits = []
+
+    while True:
+
+        fspec_octet = data[offset]
+        offset += 1
+        presence_bits.extend((fspec_octet >> bit_position) & 1 for bit_position in range(7, 0, -1))
+
+        if (fspec_octet & 0x01) == 0:
+            break
 
     lengths = ITEM_SPECS[item_type].subfield_lengths
-    content_length = sum(
-        lengths[index]
-        for index, present in enumerate(presence_bits)
-        if present and index < len(lengths)
-    )
 
+    content_length = sum(length for index, length in enumerate(lengths) if presence_bits[index])
     end_offset = offset + content_length
-    content = data[start_offset:end_offset]
 
-    return DataItem(item_type=item_type, content=content), end_offset
+    return data[start_offset:end_offset], end_offset
 
-def decode_length_indicated_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
-    length = data[offset]
 
-    if length < 1:
-        raise ValueError(f"Invalid length for {item_type}: {length}")
+# def decode_length_indicated_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
+#     length = data[offset]
 
-    end_offset = offset + length
+#     if length < 1:
+#         raise ValueError(f"Invalid length for {item_type}: {length}")
 
-    if end_offset > len(data):
-        raise ValueError(f"Truncated data item: {item_type}")
+#     end_offset = offset + length
 
-    content = data[offset:end_offset]
-    return content, end_offset
+#     if end_offset > len(data):
+#         raise ValueError(f"Truncated data item: {item_type}")
+
+#     content = data[offset:end_offset]
+#     return content, end_offset
 
 
 if __name__ == "__main__":
