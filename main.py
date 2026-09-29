@@ -92,6 +92,7 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
     records: list[DataRecord] = []
     offset = 0
     while offset < len(data):
+        print("nou registre a offset", offset, "de", len(data))
         fspec, offset = parse_fspec(data, offset)
         fields: list[DataField] = []
 
@@ -104,6 +105,8 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
                 continue
             field = DataField(item=item,field_type=get_field_type(item_type))
             fields.append(field)
+            if item_type == DataItemType.I021_040:
+                print(DataItemType.I021_040)
             print(item_type)
             field_type = get_field_type(item_type)
             field = DataField(item=item, field_type=field_type)

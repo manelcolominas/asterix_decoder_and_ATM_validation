@@ -37,7 +37,7 @@ class DataFieldType(Enum):
     EXTENDED = "extended"
     REPETITIVE = "repetitive"
     COMPOUND = "compound"
-    #LENGTH_INDICATED= "length_indicated"
+    LENGTH_INDICATED= "length_indicated"
 
 
 class DataItemType(str, Enum):
@@ -148,7 +148,8 @@ ITEM_SPECS = {
     DataItemType.I021_131: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=8),
     DataItemType.I021_145: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I021_170: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=6),
-    DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND,subfield_lengths=(1, 1, 1, 1, 1, 1, 1)),
+    #DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 
     # CAT021 no interessants
     DataItemType.I021_161: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
@@ -193,7 +194,8 @@ ITEM_SPECS = {
     DataItemType.I021_260: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=7),
     DataItemType.I021_400: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
     DataItemType.I021_295: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
-    DataItemType.I021_SPF: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    # DataItemType.I021_SPF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    DataItemType.I021_SPF: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 
     # CAT048 interessants
     DataItemType.I048_010: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
