@@ -148,7 +148,7 @@ ITEM_SPECS = {
     DataItemType.I021_131: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=8),
     DataItemType.I021_145: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I021_170: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=6),
-    #DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    # DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
     DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 
     # CAT021 no interessants
@@ -179,7 +179,8 @@ ITEM_SPECS = {
     DataItemType.I021_165: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I021_077: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=3),
     DataItemType.I021_020: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
-    DataItemType.I021_220: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    # DataItemType.I021_220: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    DataItemType.I021_220: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(2, 2, 2, 1)),
 
     DataItemType.I021_146: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I021_148: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
@@ -193,7 +194,8 @@ ITEM_SPECS = {
 
     DataItemType.I021_260: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=7),
     DataItemType.I021_400: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
-    DataItemType.I021_295: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    # DataItemType.I021_295: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    DataItemType.I021_295: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1,)*23),
     # DataItemType.I021_SPF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
     DataItemType.I021_SPF: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 
@@ -232,8 +234,11 @@ ITEM_SPECS = {
     DataItemType.I048_065: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
     DataItemType.I048_060: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
 
-    DataItemType.SP_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
-    DataItemType.RE_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    # DataItemType.SP_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    # DataItemType.RE_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+
+    DataItemType.SP_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
+    DataItemType.RE_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 }
 
 FRN_MAPS = {
