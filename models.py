@@ -131,11 +131,12 @@ class DataItemSubfield:
 
 
 class DataItemTypeSpec:
-    def __init__(self, field_type: DataFieldType, length: int | None = None, repetition_size: int | None = None, subfield_lengths: tuple[int, ...] = ()):
+    def __init__(self, field_type: DataFieldType, length: int | None = None, repetition_size: int | None = None, subfield_lengths: tuple[int, ...] = (), max_octets: int | None = None):
         self.field_type = field_type
         self.length = length
         self.repetition_size = repetition_size
         self.subfield_lengths = subfield_lengths
+        self.max_octets = max_octets
 
 
 ITEM_SPECS = {
@@ -188,7 +189,7 @@ ITEM_SPECS = {
     DataItemType.I021_016: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
 
     DataItemType.I021_008: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
-    DataItemType.I021_271: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    DataItemType.I021_271: DataItemTypeSpec(field_type=DataFieldType.EXTENDED, max_octets=2),
     DataItemType.I021_132: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
     DataItemType.I021_250: DataItemTypeSpec(field_type=DataFieldType.REPETITIVE, repetition_size=8),
 

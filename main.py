@@ -34,8 +34,8 @@ INTERESTING_DATA_ITEMS = {
 
 
 def run_app():
-    # binary_file_path = Path( r"inputs\asterix_radar.ast") # cat048
-    binary_file_path = Path( r"inputs\asterix_adsb.ast") # cat021
+    binary_file_path = Path( r"inputs\asterix_radar.ast") # cat048
+    # binary_file_path = Path( r"inputs\asterix_adsb.ast") # cat021
     # binary_file_path = Path( r"inputs\asterix_combinado.ast") # cat048 + cat021
 
     run_pipeline(binary_file_path)
@@ -92,7 +92,7 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
     records: list[DataRecord] = []
     offset = 0
     while offset < len(data):
-        print("nou registre a offset", offset, "de", len(data))
+        # print("nou registre a offset", offset, "de", len(data))
         fspec, offset = parse_fspec(data, offset)
         fields: list[DataField] = []
 
@@ -100,7 +100,7 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
             if bit == 0:
                 continue
             item_type = map_frn_to_item_type(category, frn)
-            print(frn, item_type, "offset", offset)
+            # print(frn, item_type, "offset", offset)
             item, offset = decode_data_item(category,item_type, data, offset)
             if item is None:
                 continue
@@ -158,6 +158,9 @@ def decode_data_item(category: CategoryMessage, item_type: DataItemType, data: b
     else:
         raise ValueError(f"No decode rule defined for {item_type}")
 
+    # if item_type in (DataItemType.I021_271, DataItemType.I021_295):
+    #     print(item_type, raw_content.hex(" "))
+
     if item_type not in INTERESTING_DATA_ITEMS:
         return None, new_offset
 
@@ -179,13 +182,14 @@ def decode_fixed_item(item_type: DataItemType, data: bytes, offset: int) -> tupl
 
 def decode_extended_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
     content = bytearray()
+    max_octets = ITEM_SPECS[item_type].max_octets
 
     while offset < len(data):
         octet = data[offset]
         content.append(octet)
         offset += 1
 
-        if (octet & 0x01) == 0:
+        if (octet & 0x01) == 0 or len(content) == max_octets:
             return bytes(content), offset
 
     raise ValueError(f"Truncated extended data item: {item_type}")
