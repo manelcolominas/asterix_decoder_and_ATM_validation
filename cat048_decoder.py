@@ -1,4 +1,4 @@
-from models import DataItemType, DataItemSubfield
+from main import DataItemSubfield, DataItemType
 
 def decode_data_item_cat048(item_type: DataItemType, data: bytes) -> DataItemSubfield:
     if item_type == DataItemType.I048_010:
@@ -34,19 +34,45 @@ def decode_data_item_I048_010(data: bytes) -> DataItemSubfield:
     pass
 
 def decode_data_item_I048_140(data: bytes) -> DataItemSubfield:
-    pass
+    # Time of Day: 3 octets que formen un enter sense signe
+    value = int.from_bytes(data[0:3], "big")
+    # LSB = 1/128 s -> passem a segons des de mitjanit (UTC)
+    time_seconds = value / 128
+    return DataItemSubfield(pos=0, content=[time_seconds])
 
 def decode_data_item_I048_020(data: bytes) -> DataItemSubfield:
     pass
 
 def decode_data_item_I048_040(data: bytes) -> DataItemSubfield:
-    pass
+    if len(data) != 4:
+        raise ValueError(f"I048/040 requires 4 octets, got {len(data)}")
+
+    rho_raw = int.from_bytes(data[0:2], byteorder="big")
+    theta_raw = int.from_bytes(data[2:4], byteorder="big")
+
+    rho_nm = rho_raw / 256
+    theta_deg = theta_raw * 360 / 65536
+
+    return DataItemSubfield(pos=1, content=[rho_nm, theta_deg])
     
 def decode_data_item_I048_070(data: bytes) -> DataItemSubfield:
     pass
 
 def decode_data_item_I048_090(data: bytes) -> DataItemSubfield:
-    pass
+    # Flight Level: ajuntem els 2 octets en un sol numero de 16 bits
+    value = int.from_bytes(data[0:2], "big")
+    # Bit 16: V (0 = validat, 1 = no validat)
+    v = (value >> 15) & 1
+    # Bit 15: G (0 = per defecte, 1 = garbled)
+    g = (value >> 14) & 1
+    # Bits 14-1: Flight Level en complement a 2
+    fl = value & 0x3FFF
+    # Si el bit 14 es 1, el numero es negatiu
+    if fl >= 0x2000:
+        fl = fl - 0x4000
+    # LSB = 1/4 FL
+    flight_level = fl / 4
+    return DataItemSubfield(pos=0, content=[v, g, flight_level])
 
 def decode_data_item_I048_130(data: bytes) -> DataItemSubfield:
     pass
