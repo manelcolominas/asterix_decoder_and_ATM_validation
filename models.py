@@ -123,17 +123,20 @@ class DataItemType(str, Enum):
     SP_DATA_ITEM = "SP_DATA_ITEM"
     RE_DATA_ITEM = "RE_DATA_ITEM"
 
+
 class DataItemSubfield:
     def __init__(self, pos: int, content: list[Any]):
         self.pos = pos
         self.content = content
 
+
 class DataItemTypeSpec:
-    def __init__(self, field_type: DataFieldType, length: int | None = None, repetition_size: int | None = None, subfield_lengths: tuple[int, ...] = ()):
+    def __init__(self, field_type: DataFieldType, length: int | None = None, repetition_size: int | None = None, subfield_lengths: tuple[int, ...] = (), max_octets: int | None = None):
         self.field_type = field_type
         self.length = length
         self.repetition_size = repetition_size
         self.subfield_lengths = subfield_lengths
+        self.max_octets = max_octets
 
 
 ITEM_SPECS = {
@@ -146,7 +149,8 @@ ITEM_SPECS = {
     DataItemType.I021_131: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=8),
     DataItemType.I021_145: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I021_170: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=6),
-    DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND,subfield_lengths=(1, 1, 1, 1, 1, 1, 1)),
+    # DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    DataItemType.I021_REF: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 
     # CAT021 no interessants
     DataItemType.I021_161: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
@@ -176,22 +180,25 @@ ITEM_SPECS = {
     DataItemType.I021_165: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I021_077: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=3),
     DataItemType.I021_020: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
-    DataItemType.I021_220: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    # DataItemType.I021_220: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    DataItemType.I021_220: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(2, 2, 2, 1)),
 
     DataItemType.I021_146: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I021_148: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
-    DataItemType.I021_110: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    DataItemType.I021_110: DataItemTypeSpec(field_type=DataFieldType.COMPOUND),
     DataItemType.I021_016: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
 
     DataItemType.I021_008: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
-    DataItemType.I021_271: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    DataItemType.I021_271: DataItemTypeSpec(field_type=DataFieldType.EXTENDED, max_octets=2),
     DataItemType.I021_132: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
     DataItemType.I021_250: DataItemTypeSpec(field_type=DataFieldType.REPETITIVE, repetition_size=8),
 
     DataItemType.I021_260: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=7),
     DataItemType.I021_400: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
-    DataItemType.I021_295: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
-    DataItemType.I021_SPF: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    # DataItemType.I021_295: DataItemTypeSpec(field_type=DataFieldType.EXTENDED),
+    DataItemType.I021_295: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1,)*23),
+    # DataItemType.I021_SPF: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    DataItemType.I021_SPF: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 
     # CAT048 interessants
     DataItemType.I048_010: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
@@ -200,9 +207,8 @@ ITEM_SPECS = {
     DataItemType.I048_040: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=4),
     DataItemType.I048_070: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I048_090: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
-    DataItemType.I048_130: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
 
-    # DataItemType.I048_130: DataItemTypeSpec(field_type=DataFieldType.COMPOUND,subfield_lengths=(1, 1, 1, 1, 1, 1, 1)),
+    DataItemType.I048_130: DataItemTypeSpec(field_type=DataFieldType.COMPOUND,subfield_lengths=(1, 1, 1, 1, 1, 1, 1)),
     DataItemType.I048_220: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=3),
     DataItemType.I048_240: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=6),
     DataItemType.I048_250: DataItemTypeSpec(field_type=DataFieldType.REPETITIVE,repetition_size=8),
@@ -228,6 +234,9 @@ ITEM_SPECS = {
     DataItemType.I048_050: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
     DataItemType.I048_065: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=1),
     DataItemType.I048_060: DataItemTypeSpec(field_type=DataFieldType.FIXED, length=2),
+
+    # DataItemType.SP_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
+    # DataItemType.RE_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.COMPOUND, subfield_lengths=(1, 1, 1, 1, 1, 1)),
 
     DataItemType.SP_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
     DataItemType.RE_DATA_ITEM: DataItemTypeSpec(field_type=DataFieldType.LENGTH_INDICATED),
