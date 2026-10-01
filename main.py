@@ -183,7 +183,6 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
                 if item is None:
                     continue
                 fields.append(DataField(item=item, field_type=field_type))
-                fields.append(DataField(item=item, field_type=field_type))
                 continue
 
             offset = new_offset
