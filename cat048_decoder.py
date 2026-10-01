@@ -1,4 +1,5 @@
-from models import DataItemType, DataItemSubfield
+# from models import DataItemType, DataItemSubfield
+from main import DataItemType, DataItemSubfield
 
 def decode_data_item_cat048(item_type: DataItemType, data: bytes) -> DataItemSubfield:
     if item_type == DataItemType.I048_010:
