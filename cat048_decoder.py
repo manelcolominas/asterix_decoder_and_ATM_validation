@@ -1,5 +1,4 @@
-# from models import DataItemType, DataItemSubfield
-from main import DataItemType, DataItemSubfield
+from main import DataItemSubfield, DataItemType
 
 def decode_data_item_cat048(item_type: DataItemType, data: bytes) -> DataItemSubfield:
     if item_type == DataItemType.I048_010:
@@ -45,7 +44,16 @@ def decode_data_item_I048_020(data: bytes) -> DataItemSubfield:
     pass
 
 def decode_data_item_I048_040(data: bytes) -> DataItemSubfield:
-    pass
+    if len(data) != 4:
+        raise ValueError(f"I048/040 requires 4 octets, got {len(data)}")
+
+    rho_raw = int.from_bytes(data[0:2], byteorder="big")
+    theta_raw = int.from_bytes(data[2:4], byteorder="big")
+
+    rho_nm = rho_raw / 256
+    theta_deg = theta_raw * 360 / 65536
+
+    return DataItemSubfield(pos=1, content=[rho_nm, theta_deg])
     
 def decode_data_item_I048_070(data: bytes) -> DataItemSubfield:
     pass

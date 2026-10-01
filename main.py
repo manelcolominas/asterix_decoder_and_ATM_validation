@@ -2,13 +2,12 @@ import gc
 from pathlib import Path
 import time
 
-# from models import FRN_MAPS, ITEM_SPECS, AsterixMessage, CategoryMessage, DataRecord, DataField, DataItem, DataItemType, DataFieldType
-
-###########
-############
-
 from enum import Enum, IntEnum
 from typing import Any
+
+
+from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
 
 
 class AsterixMessage:
@@ -372,7 +371,6 @@ def run_app():
     # binary_file_path = Path( r"inputs\asterix_radar.ast") # cat048
     # binary_file_path = Path( r"inputs\asterix_adsb.ast") # cat021
     binary_file_path = Path( r"inputs\asterix_combinado.ast") # cat048 + cat021
-
     run_pipeline(binary_file_path)
 
 
@@ -394,34 +392,60 @@ def decode_asterix_messages(data: bytes) -> list[AsterixMessage]:
     gc_was_enabled = gc.isenabled()
     gc.disable()
     try:
-        return decode_asterix_messages(data)
+        return decode_asterix_messages_impl(data)
     finally:
         if gc_was_enabled:
             gc.enable()
 
 
-def decode_asterix_messages(data: bytes) -> list[AsterixMessage]:
-    messages: list[AsterixMessage] = []
+def iter_asterix_message_batches(data: bytes, batch_size: int = 256) -> Iterator[list[bytes]]:
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+
     offset = 0
+    batch: list[bytes] = []
 
     while offset < len(data):
         if offset + 3 > len(data):
-            break
+            raise ValueError(f"Incomplete ASTERIX header at offset {offset}")
 
         category_value = data[offset]
         length = int.from_bytes(data[offset + 1:offset + 3], "big")
 
+        if length < 3:
+            raise ValueError(f"Invalid ASTERIX message length {length} at offset {offset}")
+
         end = offset + length
-        message_bytes = data[offset:end]
+        if end > len(data):
+            raise ValueError(f"Incomplete ASTERIX message at offset {offset}")
 
         if category_value in CategoryMessage._value2member_map_:
-            # print(f"New message of category: {category_value}")
-            # print(f"Message length: {length}, offset: {offset}, end: {end}")
-            messages.append(decode_asterix_message(message_bytes))
+            batch.append(data[offset:end])
+
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
 
         offset = end
 
-    return messages
+    if batch:
+        yield batch
+
+
+def decode_message_batch(message_batch: list[bytes]) -> list[AsterixMessage]:
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        return [decode_asterix_message(message) for message in message_batch]
+    finally:
+        if gc_was_enabled:
+            gc.enable()
+
+
+def decode_asterix_messages_impl(data: bytes) -> list[AsterixMessage]:
+    with ProcessPoolExecutor() as executor:
+        decoded_batches = executor.map(decode_message_batch,iter_asterix_message_batches(data))
+        return [message for batch in decoded_batches for message in batch]
 
 
 def decode_asterix_message(data: bytes) -> AsterixMessage:
@@ -728,7 +752,11 @@ def decode_data_item_I048_010(data: bytes) -> DataItemSubfield:
     pass
 
 def decode_data_item_I048_140(data: bytes) -> DataItemSubfield:
-    pass
+    # Time of Day: 3 octets que formen un enter sense signe
+    value = int.from_bytes(data[0:3], "big")
+    # LSB = 1/128 s -> passem a segons des de mitjanit (UTC)
+    time_seconds = value / 128
+    return DataItemSubfield(pos=0, content=[time_seconds])
 
 def decode_data_item_I048_020(data: bytes) -> DataItemSubfield:
     pass
@@ -749,7 +777,20 @@ def decode_data_item_I048_070(data: bytes) -> DataItemSubfield:
     pass
 
 def decode_data_item_I048_090(data: bytes) -> DataItemSubfield:
-    pass
+    # Flight Level: ajuntem els 2 octets en un sol numero de 16 bits
+    value = int.from_bytes(data[0:2], "big")
+    # Bit 16: V (0 = validat, 1 = no validat)
+    v = (value >> 15) & 1
+    # Bit 15: G (0 = per defecte, 1 = garbled)
+    g = (value >> 14) & 1
+    # Bits 14-1: Flight Level en complement a 2
+    fl = value & 0x3FFF
+    # Si el bit 14 es 1, el numero es negatiu
+    if fl >= 0x2000:
+        fl = fl - 0x4000
+    # LSB = 1/4 FL
+    flight_level = fl / 4
+    return DataItemSubfield(pos=0, content=[v, g, flight_level])
 
 def decode_data_item_I048_130(data: bytes) -> DataItemSubfield:
     pass
@@ -774,7 +815,6 @@ def decode_data_item_I048_170(data: bytes) -> DataItemSubfield:
 
 def decode_data_item_I048_230(data: bytes) -> DataItemSubfield:
     pass
-
 
 
 if __name__ == "__main__":
