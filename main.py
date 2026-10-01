@@ -6,6 +6,10 @@ from enum import Enum, IntEnum
 from typing import Any
 
 
+from collections.abc import Iterator
+from concurrent.futures import ProcessPoolExecutor
+
+
 class AsterixMessage:
     def __init__(self,category: CategoryMessage,length: int,records: list[DataRecord]):
         self.category = category
@@ -367,7 +371,6 @@ def run_app():
     # binary_file_path = Path( r"inputs\asterix_radar.ast") # cat048
     # binary_file_path = Path( r"inputs\asterix_adsb.ast") # cat021
     binary_file_path = Path( r"inputs\asterix_combinado.ast") # cat048 + cat021
-
     run_pipeline(binary_file_path)
 
 
@@ -395,28 +398,54 @@ def decode_asterix_messages(data: bytes) -> list[AsterixMessage]:
             gc.enable()
 
 
-def decode_asterix_messages_impl(data: bytes) -> list[AsterixMessage]:
-    messages: list[AsterixMessage] = []
+def iter_asterix_message_batches(data: bytes, batch_size: int = 256) -> Iterator[list[bytes]]:
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+
     offset = 0
+    batch: list[bytes] = []
 
     while offset < len(data):
         if offset + 3 > len(data):
-            break
+            raise ValueError(f"Incomplete ASTERIX header at offset {offset}")
 
         category_value = data[offset]
         length = int.from_bytes(data[offset + 1:offset + 3], "big")
 
+        if length < 3:
+            raise ValueError(f"Invalid ASTERIX message length {length} at offset {offset}")
+
         end = offset + length
-        message_bytes = data[offset:end]
+        if end > len(data):
+            raise ValueError(f"Incomplete ASTERIX message at offset {offset}")
 
         if category_value in CategoryMessage._value2member_map_:
-            # print(f"New message of category: {category_value}")
-            # print(f"Message length: {length}, offset: {offset}, end: {end}")
-            messages.append(decode_asterix_message(message_bytes))
+            batch.append(data[offset:end])
+
+            if len(batch) >= batch_size:
+                yield batch
+                batch = []
 
         offset = end
 
-    return messages
+    if batch:
+        yield batch
+
+
+def decode_message_batch(message_batch: list[bytes]) -> list[AsterixMessage]:
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        return [decode_asterix_message(message) for message in message_batch]
+    finally:
+        if gc_was_enabled:
+            gc.enable()
+
+
+def decode_asterix_messages_impl(data: bytes) -> list[AsterixMessage]:
+    with ProcessPoolExecutor() as executor:
+        decoded_batches = executor.map(decode_message_batch,iter_asterix_message_batches(data))
+        return [message for batch in decoded_batches for message in batch]
 
 
 def decode_asterix_message(data: bytes) -> AsterixMessage:
