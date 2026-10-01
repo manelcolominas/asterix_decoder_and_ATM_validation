@@ -1,5 +1,6 @@
 import gc
 from pathlib import Path
+import time
 
 from models import FRN_MAPS, ITEM_SPECS, AsterixMessage, CategoryMessage, DataRecord, DataField, DataItem, DataItemType, DataFieldType
 
@@ -36,8 +37,8 @@ INTERESTING_DATA_ITEMS = {
 
 def run_app():
     # binary_file_path = Path( r"inputs\asterix_radar.ast") # cat048
-    binary_file_path = Path( r"inputs\asterix_adsb.ast") # cat021
-    # binary_file_path = Path( r"inputs\asterix_combinado.ast") # cat048 + cat021
+    # binary_file_path = Path( r"inputs\asterix_adsb.ast") # cat021
+    binary_file_path = Path( r"inputs\asterix_combinado.ast") # cat048 + cat021
 
     run_pipeline(binary_file_path)
 
@@ -81,6 +82,8 @@ def decode_asterix_messages(data: bytes) -> list[AsterixMessage]:
         message_bytes = data[offset:end]
 
         if category_value in CategoryMessage._value2member_map_:
+            # print(f"New message of category: {category_value}")
+            # print(f"Message length: {length}, offset: {offset}, end: {end}")
             messages.append(decode_asterix_message(message_bytes))
 
         offset = end
@@ -191,6 +194,7 @@ def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataR
 
             subfield = decoder(item_type, raw_content)
             item = DataItem(item_type=item_type, content=[subfield])
+            # print(f"Item type: {item_type}")
             fields.append(DataField(item=item, field_type=field_type))
 
         records.append(DataRecord(fspec=fspec, fields=fields))
@@ -305,5 +309,11 @@ VARIABLE_DECODERS = {
 }
 
 
+
+
+
 if __name__ == "__main__":
+    start_time =  time.perf_counter()
     run_app()
+    end_time =  time.perf_counter()
+    print(f"Execution time: {end_time - start_time} seconds")
