@@ -39,7 +39,41 @@ def decode_data_item_I048_140(data: bytes) -> DataItemSubfield:
     pass
 
 def decode_data_item_I048_020(data: bytes) -> DataItemSubfield:
-    pass
+    octet1 = data[0]
+
+    typ = (octet1 >> 5) & 0b111
+    sim = (octet1 >> 4) & 0b1
+    rdp = (octet1 >> 3) & 0b1
+    spi = (octet1 >> 2) & 0b1
+    rab = (octet1 >> 1) & 0b1
+    fx = octet1 & 0b1
+
+    content = [typ, sim, rdp, spi, rab]
+
+    if fx == 1:
+        octet2 = data[1]
+
+        tst = (octet2 >> 7) & 0b1
+        err = (octet2 >> 6) & 0b1
+        xpp = (octet2 >> 5) & 0b1
+        me = (octet2 >> 4) & 0b1
+        mi = (octet2 >> 3) & 0b1
+        foe_fri = (octet2 >> 1) & 0b11
+        fx2 = octet2 & 0b1
+
+        content.extend([tst, err, xpp, me, mi, foe_fri])
+
+        if fx2 == 1:
+            octet3 = data[2]
+
+            ads_b = (octet3 >> 6) & 0b11
+            scn = (octet3 >> 4) & 0b11
+            pai = (octet3 >> 2) & 0b11
+            fx3 = octet3 & 0b1
+
+            content.extend([ads_b, scn, pai])
+
+    return DataItemSubfield(pos=0, content=content)
 
 def decode_data_item_I048_040(data: bytes) -> DataItemSubfield:
     pass
