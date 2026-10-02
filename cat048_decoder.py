@@ -31,7 +31,9 @@ def decode_data_item_cat048(item_type: DataItemType, data: bytes) -> DataItemSub
         return decode_data_item_I048_230(data)
 
 def decode_data_item_I048_010(data: bytes) -> DataItemSubfield:
-    pass
+    sac = data[0]
+    sic = data[1]
+    return DataItemSubfield(pos=0, content=[sac, sic])
 
 def decode_data_item_I048_140(data: bytes) -> DataItemSubfield:
     pass
