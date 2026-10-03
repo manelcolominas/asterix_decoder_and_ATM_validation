@@ -3,6 +3,7 @@ from pathlib import Path
 import time
 
 from enum import Enum, IntEnum
+from functools import partial
 from typing import Any
 
 
@@ -10,11 +11,21 @@ from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 
 
+# The decoder creates tens of millions of these objects. __slots__ makes them
+# smaller and faster to create/free, and __reduce__ lets pickle (used to send
+# results back from the worker processes) rebuild them with a plain
+# constructor call instead of a per-object state dict.
+
 class AsterixMessage:
+    __slots__ = ("category", "length", "records")
+
     def __init__(self,category: CategoryMessage,length: int,records: list[DataRecord]):
         self.category = category
         self.length = length
         self.records = records
+
+    def __reduce__(self):
+        return AsterixMessage, (self.category, self.length, self.records)
 
 
 class CategoryMessage(IntEnum):
@@ -23,21 +34,36 @@ class CategoryMessage(IntEnum):
 
 
 class DataRecord:
+    __slots__ = ("fspec", "fields")
+
     def __init__(self,fspec: list[int],fields: list[DataField]):
         self.fspec = fspec
         self.fields = fields
 
+    def __reduce__(self):
+        return DataRecord, (self.fspec, self.fields)
+
 
 class DataItem:
+    __slots__ = ("item_type", "content")
+
     def __init__(self,item_type: DataItemType, content: list[DataItemSubfield]):
         self.item_type = item_type
         self.content = content
 
+    def __reduce__(self):
+        return DataItem, (self.item_type, self.content)
+
 
 class DataField:
+    __slots__ = ("item", "field_type")
+
     def __init__(self,item: DataItem, field_type: DataFieldType):
         self.item = item
         self.field_type = field_type
+
+    def __reduce__(self):
+        return DataField, (self.item, self.field_type)
 
 
 class DataFieldType(Enum):
@@ -133,9 +159,14 @@ class DataItemType(str, Enum):
 
 
 class DataItemSubfield:
+    __slots__ = ("pos", "content")
+
     def __init__(self, pos: int, content: list[Any]):
         self.pos = pos
         self.content = content
+
+    def __reduce__(self):
+        return DataItemSubfield, (self.pos, self.content)
 
 
 class DataItemTypeSpec:
@@ -398,45 +429,51 @@ def decode_asterix_messages(data: bytes) -> list[AsterixMessage]:
             gc.enable()
 
 
-def iter_asterix_message_batches(data: bytes, batch_size: int = 256) -> Iterator[list[bytes]]:
-    if batch_size < 1:
-        raise ValueError("batch_size must be at least 1")
+def iter_asterix_chunks(data: bytes, chunk_size: int = 1 << 20) -> Iterator[bytes]:
+    # Splits the file into contiguous chunks of roughly chunk_size bytes, always
+    # cut at message boundaries. Sending a few big bytes objects to the workers is
+    # much cheaper than pickling one bytes object per message.
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be at least 1")
 
+    data_len = len(data)
+    chunk_start = 0
     offset = 0
-    batch: list[bytes] = []
 
-    while offset < len(data):
-        if offset + 3 > len(data):
+    while offset < data_len:
+        if offset + 3 > data_len:
             raise ValueError(f"Incomplete ASTERIX header at offset {offset}")
 
-        category_value = data[offset]
-        length = int.from_bytes(data[offset + 1:offset + 3], "big")
+        length = (data[offset + 1] << 8) | data[offset + 2]
 
         if length < 3:
             raise ValueError(f"Invalid ASTERIX message length {length} at offset {offset}")
 
-        end = offset + length
-        if end > len(data):
-            raise ValueError(f"Incomplete ASTERIX message at offset {offset}")
+        offset += length
+        if offset > data_len:
+            raise ValueError(f"Incomplete ASTERIX message at offset {offset - length}")
 
-        if category_value in CategoryMessage._value2member_map_:
-            batch.append(data[offset:end])
+        if offset - chunk_start >= chunk_size:
+            yield data[chunk_start:offset]
+            chunk_start = offset
 
-            if len(batch) >= batch_size:
-                yield batch
-                batch = []
-
-        offset = end
-
-    if batch:
-        yield batch
+    if chunk_start < data_len:
+        yield data[chunk_start:]
 
 
-def decode_message_batch(message_batch: list[bytes]) -> list[AsterixMessage]:
+def decode_message_chunk(chunk: bytes) -> list[AsterixMessage]:
     gc_was_enabled = gc.isenabled()
     gc.disable()
     try:
-        return [decode_asterix_message(message) for message in message_batch]
+        messages: list[AsterixMessage] = []
+        offset = 0
+        chunk_len = len(chunk)
+        while offset < chunk_len:
+            end = offset + ((chunk[offset + 1] << 8) | chunk[offset + 2])
+            if chunk[offset] in CATEGORY_VALUES:
+                messages.append(decode_asterix_message(chunk, offset, end))
+            offset = end
+        return messages
     finally:
         if gc_was_enabled:
             gc.enable()
@@ -444,124 +481,154 @@ def decode_message_batch(message_batch: list[bytes]) -> list[AsterixMessage]:
 
 def decode_asterix_messages_impl(data: bytes) -> list[AsterixMessage]:
     with ProcessPoolExecutor() as executor:
-        decoded_batches = executor.map(decode_message_batch,iter_asterix_message_batches(data))
-        return [message for batch in decoded_batches for message in batch]
+        decoded_chunks = executor.map(decode_message_chunk, iter_asterix_chunks(data))
+        return [message for chunk in decoded_chunks for message in chunk]
 
 
-def decode_asterix_message(data: bytes) -> AsterixMessage:
-
-    category_value = data[0]
-    length = int.from_bytes(data[1:3], "big")
-
-    category = CategoryMessage(category_value)
-
-    payload = data[3:]
-    records = decode_records_message(category, payload)
-
-    asterix_message = AsterixMessage(category=category, length=length, records=records)
-    return asterix_message
+CATEGORY_VALUES = frozenset(CategoryMessage._value2member_map_)
 
 
-# Lookup tables: for every possible FSPEC octet, its 7 presence bits and the
-# 1-based positions of the bits that are set.
+def decode_asterix_message(data: bytes, start: int = 0, end: int | None = None) -> AsterixMessage:
+    # Decodes the message that starts at data[start]. Working with offsets into
+    # the original buffer avoids copying every message and its payload.
+    length = (data[start + 1] << 8) | data[start + 2]
+    if end is None:
+        end = start + length
+
+    category = CategoryMessage(data[start])
+    records = decode_records_message(category, data, start + 3, end)
+
+    return AsterixMessage(category, length, records)
+
+
+# Lookup table: for every possible FSPEC octet, its 7 presence bits.
 FSPEC_BITS = tuple(tuple((octet >> bit) & 1 for bit in range(7, 0, -1)) for octet in range(256))
-FSPEC_SET = tuple(tuple(pos for pos, bit in enumerate(bits, start=1) if bit) for bits in FSPEC_BITS)
 
-# Per-category dispatch cache: frn -> (item_type, field_type, is_interesting, fixed_length)
+# Per-category dispatch cache, see build_fspec_dispatch().
 DISPATCH_CACHE: dict = {}
 
-def get_dispatch(category: CategoryMessage) -> dict:
+
+def get_dispatch(category: CategoryMessage) -> tuple[tuple[tuple, ...], ...]:
     table = DISPATCH_CACHE.get(category)
     if table is None:
-        table = {}
-        for frn, item_type in FRN_MAPS.get(category, {}).items():
-            spec = ITEM_SPECS.get(item_type)
-            if spec is None:
-                continue  # falls back to the generic path, which raises as before
-            table[frn] = (item_type, spec.field_type, item_type in INTERESTING_DATA_ITEMS, spec.length)
+        table = build_fspec_dispatch(category)
         DISPATCH_CACHE[category] = table
     return table
 
 
-def parse_fspec_with_frns(data: bytes, offset: int) -> tuple[list[int], list[int], int]:
-    fspec: list[int] = []
-    frns: list[int] = []
-    base = 0
+def build_fspec_dispatch(category: CategoryMessage) -> tuple[tuple[tuple, ...], ...]:
+    # table[k][octet] is the tuple of field entries announced by the k-th FSPEC
+    # octet when it has that value, in FRN order. Each entry is
+    #   (item_type, field_type, fixed_length, end_fn, end_param, decode_fn)
+    # - fixed_length is set for FIXED items; otherwise end_fn(data, offset, end_param)
+    #   returns where the item ends.
+    # - decode_fn is None for items we skip, so they are never sliced nor decoded.
+    # An FRN without a definition maps to None and makes decoding fail.
+    frn_map = FRN_MAPS.get(category, {})
+    item_decoders = ITEM_DECODERS.get(category, {})
 
-    while True:
-        fspec_octet = data[offset]
-        offset += 1
+    entries: dict[int, tuple | None] = {}
+    for frn, item_type in frn_map.items():
+        spec = ITEM_SPECS.get(item_type)
+        if spec is None:
+            continue
 
-        fspec.extend(FSPEC_BITS[fspec_octet])
-        for pos in FSPEC_SET[fspec_octet]:
-            frns.append(base + pos)
-        base += 7
+        field_type = spec.field_type
+        fixed_length = None
+        end_fn = None
+        end_param = None
 
-        if fspec_octet & 1 == 0:
-            break
+        if field_type is DataFieldType.FIXED:
+            fixed_length = spec.length
+        elif field_type is DataFieldType.EXTENDED:
+            end_fn, end_param = extended_item_end, spec.max_octets
+        elif field_type is DataFieldType.REPETITIVE:
+            end_fn, end_param = repetitive_item_end, spec.repetition_size
+        elif field_type is DataFieldType.COMPOUND:
+            end_fn, end_param = compound_item_end, compound_octet_tables(spec.subfield_lengths)
+        elif field_type is DataFieldType.LENGTH_INDICATED:
+            end_fn = length_indicated_item_end
+        else:
+            continue
 
-    return fspec, frns, offset
+        decode_fn = None
+        if item_type in INTERESTING_DATA_ITEMS:
+            decode_fn = item_decoders.get(item_type, decode_data_item_not_implemented)
+
+        entries[frn] = (item_type, field_type, fixed_length, end_fn, end_param, decode_fn)
+
+    max_frn = max(frn_map, default=0)
+    octet_count = (max_frn + 6) // 7
+
+    table = []
+    for k in range(octet_count):
+        per_octet = []
+        for octet in range(256):
+            row = []
+            for pos, bit in enumerate(FSPEC_BITS[octet], start=1):
+                if bit:
+                    row.append(entries.get(k * 7 + pos))
+            per_octet.append(tuple(row))
+        table.append(tuple(per_octet))
+    return tuple(table)
 
 
-def decode_records_message(category: CategoryMessage, data: bytes) -> list[DataRecord]:
+def decode_records_message(category: CategoryMessage, data: bytes, offset: int = 0, end: int | None = None) -> list[DataRecord]:
+    if end is None:
+        end = len(data)
+
     records: list[DataRecord] = []
-    offset = 0
-    data_len = len(data)
     dispatch = get_dispatch(category)
+    dispatch_len = len(dispatch)
+    fspec_bits = FSPEC_BITS
 
-    if category == CategoryMessage.CAT021:
-        decoder = decode_data_item_cat021
-    elif category == CategoryMessage.CAT048:
-        decoder = decode_data_item_cat048
-    else:
-        decoder = None
+    while offset < end:
+        # FSPEC: collect the presence bits and the entries of the fields present.
+        fspec: list[int] = []
+        present: tuple = ()
+        k = 0
+        while True:
+            fspec_octet = data[offset]
+            offset += 1
+            fspec += fspec_bits[fspec_octet]
+            if k < dispatch_len:
+                present += dispatch[k][fspec_octet]
+            elif fspec_octet & 0xFE:
+                raise ValueError(f"Unknown FRN in FSPEC octet {k + 1} for {category.name}")
+            k += 1
+            if not fspec_octet & 1:
+                break
 
-    while offset < data_len:
-        fspec, frns, offset = parse_fspec_with_frns(data, offset)
         fields: list[DataField] = []
-
-        for frn in frns:
-            entry = dispatch.get(frn)
-
-            if entry is not None:
-                item_type, field_type, interesting, length = entry
-                if field_type is DataFieldType.FIXED:
-                    new_offset = offset + length
-                    raw_content = bytes(data[offset:new_offset]) if interesting else None
-                else:
-                    var_decoder = VARIABLE_DECODERS.get(field_type)
-                    if var_decoder is None:
-                        entry = None  # unknown field type -> generic path raises as before
-                    else:
-                        raw_content, new_offset = var_decoder(item_type, data, offset)
-
+        for entry in present:
             if entry is None:
-                # Generic (original) path: unknown FRN / missing spec raise exactly as before.
-                item_type = map_frn_to_item_type(category, frn)
-                field_type = get_field_type(item_type)
-                item, offset = decode_data_item(category, item_type, data, offset)
-                if item is None:
-                    continue
-                fields.append(DataField(item=item, field_type=field_type))
-                continue
+                raise ValueError(f"Undefined FRN in FSPEC {fspec} for {category.name}")
 
-            offset = new_offset
-            if not interesting:
-                continue
+            item_type, field_type, fixed_length, end_fn, end_param, decode_fn = entry
+            if fixed_length is not None:
+                item_end = offset + fixed_length
+            else:
+                item_end = end_fn(data, offset, end_param)
 
-            subfield = decoder(item_type, raw_content)
-            item = DataItem(item_type=item_type, content=[subfield])
-            # print(f"Item type: {item_type}")
-            fields.append(DataField(item=item, field_type=field_type))
+            if decode_fn is not None:
+                subfield = decode_fn(data[offset:item_end])
+                fields.append(DataField(DataItem(item_type, [subfield]), field_type))
 
-        records.append(DataRecord(fspec=fspec, fields=fields))
+            offset = item_end
+
+        records.append(DataRecord(fspec, fields))
 
     return records
 
 
 def parse_fspec(data: bytes, offset: int) -> tuple[list[int], int]:
-    fspec, frns, offset = parse_fspec_with_frns(data, offset)
-    return fspec, offset
+    fspec: list[int] = []
+    while True:
+        fspec_octet = data[offset]
+        offset += 1
+        fspec += FSPEC_BITS[fspec_octet]
+        if not fspec_octet & 1:
+            return fspec, offset
 
 
 def map_frn_to_item_type(category: CategoryMessage,frn: int) -> DataItemType:
@@ -572,122 +639,61 @@ def get_field_type(item_type: DataItemType) -> DataFieldType:
     return ITEM_SPECS[item_type].field_type
 
 
-def decode_data_item(category: CategoryMessage, item_type: DataItemType, data: bytes, offset: int) -> tuple[DataItem | None, int]:
-    field_type = get_field_type(item_type)
+# Variable-length items: each function returns the offset where the item that
+# starts at data[offset] ends.
 
-    if field_type == DataFieldType.FIXED:
-        raw_content, new_offset = decode_fixed_item(item_type, data, offset)
-    elif field_type == DataFieldType.EXTENDED:
-        raw_content, new_offset = decode_extended_item(item_type, data, offset)
-    elif field_type == DataFieldType.REPETITIVE:
-        raw_content, new_offset = decode_repetitive_item(item_type, data, offset)
-    elif field_type == DataFieldType.COMPOUND:
-        raw_content, new_offset = decode_compound_item(item_type, data, offset)
-    elif field_type == DataFieldType.LENGTH_INDICATED:
-       raw_content, new_offset = decode_length_indicated_item(item_type, data, offset)
-    else:
-        raise ValueError(f"No decode rule defined for {item_type}")
-
-    if item_type not in INTERESTING_DATA_ITEMS:
-        return None, new_offset
-
-    if category == CategoryMessage.CAT021:
-        subfield = decode_data_item_cat021(item_type, raw_content)
-    elif category == CategoryMessage.CAT048:
-        subfield = decode_data_item_cat048(item_type, raw_content)
-
-    return DataItem(item_type=item_type, content=[subfield]), new_offset
-
-
-def decode_fixed_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
-    length = ITEM_SPECS[item_type].length
-    content = data[offset:offset + length]
-    return bytes(content), offset + length
-
-
-def decode_extended_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
-    content = bytearray()
-    max_octets = ITEM_SPECS[item_type].max_octets
-
-    while offset < len(data):
-        octet = data[offset]
-        content.append(octet)
-        offset += 1
-
-        if (octet & 0x01) == 0 or len(content) == max_octets:
-            return bytes(content), offset
-
-
-def decode_repetitive_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
-    start_offset = offset
-    rep_count = data[offset]
-    offset += 1
-    subfield_size = ITEM_SPECS[item_type].repetition_size
-
-    end_offset = offset + rep_count * subfield_size
-    return data[start_offset:end_offset], end_offset
-
-
-def decode_compound_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
-    start_offset = offset
-    presence_bits = []
-
+def extended_item_end(data: bytes, offset: int, max_octets: int | None) -> int:
+    limit = offset + max_octets if max_octets else -1
     while True:
-
-        fspec_octet = data[offset]
+        octet = data[offset]
         offset += 1
-        presence_bits.extend((fspec_octet >> bit_position) & 1 for bit_position in range(7, 0, -1))
-
-        if (fspec_octet & 0x01) == 0:
-            break
-
-    lengths = ITEM_SPECS[item_type].subfield_lengths
-
-    content_length = sum(lengths[index] for index, bit in enumerate(presence_bits) if bit and index < len(lengths))
-    end_offset = offset + content_length
-
-    return data[start_offset:end_offset], end_offset
+        if not octet & 1 or offset == limit:
+            return offset
 
 
-def decode_length_indicated_item(item_type: DataItemType, data: bytes, offset: int) -> tuple[bytes, int]:
-    length = data[offset]
-
-    end_offset = offset + length
-
-    content = data[offset:end_offset]
-    return content, end_offset
+def repetitive_item_end(data: bytes, offset: int, repetition_size: int) -> int:
+    return offset + 1 + data[offset] * repetition_size
 
 
-VARIABLE_DECODERS = {
-    DataFieldType.EXTENDED: decode_extended_item,
-    DataFieldType.REPETITIVE: decode_repetitive_item,
-    DataFieldType.COMPOUND: decode_compound_item,
-    DataFieldType.LENGTH_INDICATED: decode_length_indicated_item,
-}
+def compound_octet_tables(subfield_lengths: tuple[int, ...]) -> tuple[tuple[int, ...], ...]:
+    # tables[k][octet] = total length of the subfields flagged by the k-th
+    # primary-subfield octet. Subfields without a known length count as 0.
+    tables = []
+    for k in range((len(subfield_lengths) + 6) // 7):
+        lengths = subfield_lengths[k * 7:k * 7 + 7]
+        tables.append(tuple(
+            sum(length for length, bit in zip(lengths, FSPEC_BITS[octet]) if bit)
+            for octet in range(256)
+        ))
+    return tuple(tables)
+
+
+def compound_item_end(data: bytes, offset: int, octet_tables: tuple[tuple[int, ...], ...]) -> int:
+    content_length = 0
+    k = 0
+    while True:
+        octet = data[offset]
+        offset += 1
+        if k < len(octet_tables):
+            content_length += octet_tables[k][octet]
+        k += 1
+        if not octet & 1:
+            return offset + content_length
+
+
+def length_indicated_item_end(data: bytes, offset: int, _param: None) -> int:
+    return offset + data[offset]
+
+
+def decode_data_item_not_implemented(data: bytes) -> DataItemSubfield | None:
+    return None
 
 
 ######################
 ######################  CAT021
 
 def decode_data_item_cat021(item_type: DataItemType, data: bytes) -> DataItemSubfield:
-    if item_type == DataItemType.I021_010:
-        return decode_data_item_I021_010(item_type, data)
-    if item_type == DataItemType.I021_040:
-        return decode_data_item_I021_040(item_type, data)
-    if item_type == DataItemType.I021_070:
-        return decode_data_item_I021_070(item_type, data)
-    if item_type == DataItemType.I021_073:
-        return decode_data_item_I021_073(item_type, data)
-    if item_type == DataItemType.I021_080:
-        return decode_data_item_I021_080(item_type, data)
-    if item_type == DataItemType.I021_131:
-        return decode_data_item_I021_131(item_type, data)
-    if item_type == DataItemType.I021_145:
-        return decode_data_item_I021_145(item_type, data)
-    if item_type == DataItemType.I021_170:
-        return decode_data_item_I021_170(item_type, data)
-    if item_type == DataItemType.I021_REF:
-        return decode_data_item_I021_REF(item_type, data)
+    return CAT021_ITEM_DECODERS[item_type](data)
 
 def decode_data_item_I021_010(item_type: DataItemType, data: bytes) -> DataItemSubfield:
     pass
@@ -719,34 +725,7 @@ def decode_data_item_I021_REF(item_type: DataItemType, data: bytes) -> DataItemS
 ######################  CAT048
 ######################  CAT048
 def decode_data_item_cat048(item_type: DataItemType, data: bytes) -> DataItemSubfield:
-    if item_type == DataItemType.I048_010:
-        return decode_data_item_I048_010(data)
-    if item_type == DataItemType.I048_140:
-        return decode_data_item_I048_140(data)
-    if item_type == DataItemType.I048_020:
-        return decode_data_item_I048_020(data)
-    if item_type == DataItemType.I048_040:
-        return decode_data_item_I048_040(data)
-    if item_type == DataItemType.I048_070:
-        return decode_data_item_I048_070(data)
-    if item_type == DataItemType.I048_090:
-        return decode_data_item_I048_090(data)
-    if item_type == DataItemType.I048_130:
-        return decode_data_item_I048_130(data)
-    if item_type == DataItemType.I048_220:
-        return decode_data_item_I048_220(data)
-    if item_type == DataItemType.I048_240:
-        return decode_data_item_I048_240(data)
-    if item_type == DataItemType.I048_250:
-        return decode_data_item_I048_250(data)
-    if item_type == DataItemType.I048_161:
-        return decode_data_item_I048_161(data)
-    if item_type == DataItemType.I048_200:
-        return decode_data_item_I048_200(data)
-    if item_type == DataItemType.I048_170:
-        return decode_data_item_I048_170(data)
-    if item_type == DataItemType.I048_230:
-        return decode_data_item_I048_230(data)
+    return CAT048_ITEM_DECODERS[item_type](data)
 
 def decode_data_item_I048_010(data: bytes) -> DataItemSubfield:
     pass
@@ -815,6 +794,45 @@ def decode_data_item_I048_170(data: bytes) -> DataItemSubfield:
 
 def decode_data_item_I048_230(data: bytes) -> DataItemSubfield:
     pass
+
+
+######################  Item decoder lookup
+
+# The CAT021 decoders also receive their item type, bound here with partial so
+# every decoder can be called as decoder(data).
+CAT021_ITEM_DECODERS = {
+    DataItemType.I021_010: partial(decode_data_item_I021_010, DataItemType.I021_010),
+    DataItemType.I021_040: partial(decode_data_item_I021_040, DataItemType.I021_040),
+    DataItemType.I021_070: partial(decode_data_item_I021_070, DataItemType.I021_070),
+    DataItemType.I021_073: partial(decode_data_item_I021_073, DataItemType.I021_073),
+    DataItemType.I021_080: partial(decode_data_item_I021_080, DataItemType.I021_080),
+    DataItemType.I021_131: partial(decode_data_item_I021_131, DataItemType.I021_131),
+    DataItemType.I021_145: partial(decode_data_item_I021_145, DataItemType.I021_145),
+    DataItemType.I021_170: partial(decode_data_item_I021_170, DataItemType.I021_170),
+    DataItemType.I021_REF: partial(decode_data_item_I021_REF, DataItemType.I021_REF),
+}
+
+CAT048_ITEM_DECODERS = {
+    DataItemType.I048_010: decode_data_item_I048_010,
+    DataItemType.I048_140: decode_data_item_I048_140,
+    DataItemType.I048_020: decode_data_item_I048_020,
+    DataItemType.I048_040: decode_data_item_I048_040,
+    DataItemType.I048_070: decode_data_item_I048_070,
+    DataItemType.I048_090: decode_data_item_I048_090,
+    DataItemType.I048_130: decode_data_item_I048_130,
+    DataItemType.I048_220: decode_data_item_I048_220,
+    DataItemType.I048_240: decode_data_item_I048_240,
+    DataItemType.I048_250: decode_data_item_I048_250,
+    DataItemType.I048_161: decode_data_item_I048_161,
+    DataItemType.I048_200: decode_data_item_I048_200,
+    DataItemType.I048_170: decode_data_item_I048_170,
+    DataItemType.I048_230: decode_data_item_I048_230,
+}
+
+ITEM_DECODERS = {
+    CategoryMessage.CAT021: CAT021_ITEM_DECODERS,
+    CategoryMessage.CAT048: CAT048_ITEM_DECODERS,
+}
 
 
 if __name__ == "__main__":
